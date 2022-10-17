@@ -4,8 +4,8 @@ This is an anonymous repository hosting the code of CAGAD for double-blind revie
 
 ## Data
 
-- For Yelp, Amazon, and PubMed datasets, they will be automatically downloaded when runinng the code.    
 - For T-Finance dataset, you can download it from the baseline paper BWGNN: https://proceedings.mlr.press/v162/tang22b.html
+- For PubMed, Amazon, and Yelp datasets, they will be automatically downloaded when runinng the code.    
 
 ## Dependencies
 
@@ -21,7 +21,17 @@ pip install -r requirements.txt
 ## Run
 
 ```shell
-python main.py --dataset=yelp/amazon/pubmed/tfinance
+# PubMed
+python main.py --dataset=pubmed
+
+# T-Finance
+python main.py --dataset=tfinance
+
+# Amazon
+python main.py --dataset=amazon
+
+# Yelp dataset
+python main.py --dataset=yelp --homo=0
 ```
 
-For Amazon and PubMed datasets set the flag `--homo=1`.
+Description of hyper-parameters can be found in `main.py`.

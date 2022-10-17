@@ -5,189 +5,31 @@ import torch.nn.functional as F
 import numpy
 import argparse
 import time
-# import taichi as ti
-import heapq
+import logging
 from GCN import GCN
 from GraphSAGE import GraphSAGE
 from dataset import Dataset
 from sklearn.metrics import f1_score, accuracy_score, recall_score, roc_auc_score, precision_score, confusion_matrix,precision_recall_curve,auc
 from BWGNN import *
 from sklearn.model_selection import train_test_split
-import logging
-# ti.init(arch=ti.gpu)
+from util import saveOneStep
 
-def points2txt(data,roi_file='normalRatioTFinance.txt'):
-    f = open(roi_file, 'a')
-    f.write(str(float('%.4f' % data)))
-    f.write("\n")
-    f.close()
-
-def saveOneStep(graph,index:list,label):
-
-    # obtain neighbors of anomalies
-    H = []
-    for i in index:
-        # i = i + len(labels)//2
-        t = list(dgl.bfs_nodes_generator(graph,i,True))
-        count = 0
-        temp = [1]
-        if (len(t)>2):
-            temp =  t[1].numpy().tolist()
-            for i in temp:
-                if label[i]==0:
-                   count +=1
-        else:
-            count = 0
-        s = count/len(temp)
-        points2txt(s,"normalRatioPubMed.txt")
-    
-
-
-# Obtaining neighboring nodes for homo network
-def geChangeNode(graph,idx_train:list,idx_test:list,abnormal_idx:numpy.array,labels:torch.Tensor,change_radio1:float,change_radio2:float)->int:
-    C = [] 
-    AB = list(abnormal_idx) + idx_test +idx_train
-    for i in AB:
-        if i in idx_train and i in list(abnormal_idx):
-            if i not in C:
-                C.append(i)
-        else:
-            continue
-    
-    C1 = C[:int(change_radio1*len(C))]
-    # obtain neighbors of anomalous nodes 
-    H = []
-    for i in C1:
-        # i = i + len(labels)//2
-        t = list(dgl.bfs_nodes_generator(graph,i,True))
-        if (len(t)>2):
-            temp =  t[1].numpy().tolist()
-            H +=temp[:int(change_radio2*len(temp))]
-    
-    H=list(set(H))
-    # obtain neighbors of neighbors
-    H1 = []
-    for i in H:
-        t = list(dgl.bfs_nodes_generator(graph,i))
-        if (len(t)>2):
-            temp =  t[1].numpy().tolist()
-            H1 +=temp[:int(change_radio2*len(temp))]
-    H_ALL = H + H1
-    # remove duplicates
-
-    H_ALL=list(set(H_ALL))
-    for i in C1:
-        if i in H_ALL:
-            H_ALL.remove(i)
-    # H_ALL.remove(C1)
-    return C,C1,H_ALL
-
-# Obtaining neighboring nodes for hete network
-def getNeighber(V11:list,V12:list,V21:list,V22:list,V31:list,V32:list,C1:list):
-        # obtain neighbors of hete nodes
-    H=[]
-    for index, value in enumerate(V11):
-        if value in C1:
-            H.append(V12[index])
-    for index, value in enumerate(V12):
-        if value in C1:
-            H.append(V11[index])
-    for index, value in enumerate(V21):
-        if value in C1:
-            H.append(V22[index])
-    for index, value in enumerate(V22):
-        if value in C1:
-            H.append(V21[index])
-    for index, value in enumerate(V31):
-        if value in C1:
-            H.append(V32[index])
-    for index, value in enumerate(V32):
-        if value in C1:
-            H.append(V31[index])
-    
-    H = list(set(H))
-    np.random.shuffle(H)
-    return H
-
-def getHeteroChangeNode(graph,idx_train,idx_test,abnormal_idx,labels,change_ratio1,change_ratio2)->int:
-    C = [] 
-    v1 = list(graph.edges(etype='net_rsr'))
-    v2 = list(graph.edges(etype='net_rtr'))
-    v3 = list(graph.edges(etype='net_rur'))
-    V11 = v1[0].tolist()
-    V12 = v1[1].tolist()
-    V21 = v2[0].tolist()
-    V22 = v2[1].tolist()
-    V31 = v3[0].tolist()
-    V32 = v3[1].tolist()
-
-    AB = list(abnormal_idx) + idx_test +idx_train
-    for i in AB:
-        if i in idx_train and i in list(abnormal_idx):
-            if i not in C:
-                C.append(i)
-        else:
-            continue
-    C1 = C[:int(change_ratio1*len(C))]
-    H = getNeighber(V11,V12,V21,V22,V31,V32,C1)
-    
-    H = H[:int(change_ratio2*len(H))]
-    # obtain neighbors of neighbors
-    H1 = []
-    for index, value in enumerate(V11):
-        if value in H:
-            H1.append(V12[index])
-    for index, value in enumerate(V12):
-        if value in H:
-            H1.append(V11[index])
-    for index, value in enumerate(V21):
-        if value in H:
-            H1.append(V22[index])
-    for index, value in enumerate(V22):
-        if value in H:
-            H1.append(V21[index])
-    for index, value in enumerate(V31):
-        if value in H:
-            H1.append(V32[index])
-    for index, value in enumerate(V32):
-        if value in H:
-            H1.append(V31[index])
-    np.random.shuffle(H1)
-    H1 = list(set(H1))
-    H1 = H1[:int(change_ratio2*len(H1))]
-    H_ALL = H + H1
-    H_ALL=list(set(H_ALL))
-    H_ALL.remove(C1)
-    return C,C1,H_ALL
-
-def getChangeNode2(labels,C,change_ratio1,change_ratio2):
-    H_ALL = list(range(len(labels)//3))
-    np.random.shuffle(C)
-    C1 = C[:int(change_ratio1*len(C))]
-    # H_ALL.remove(C1)
-    for i in C1:
-        if i in H_ALL:
-            H_ALL.remove(i)
-    np.random.shuffle(H_ALL)
-    H_ALL = H_ALL[:int(change_ratio2*len(H_ALL))]
-    return C1,H_ALL
-
-def getChangeNode3(H_ALL,C,change_ratio1,change_ratio2):
+def getChangeNode(H_ALL,C,change_ratio1,change_ratio2):
     np.random.shuffle(C)
     C1 = C[:int(change_ratio1*len(C))]
     # H_ALL.remove(C1)
     H_ALL = H_ALL[:int(change_ratio2*len(H_ALL))]
     return C1,H_ALL
 
-def train(model, g, args, abchr, neighborchr):
+def train(model, g, args):
     # logging.basicConfig(filename=f"./log/logger_"+args.dataset+".log",filemode="a",format="%(asctime)s-%(name)s-%(levelname)s-%(message)s",level=logging.INFO)
     # logger=logging.getLogger('BWGNN')
     features = g.ndata['feature'].clone()
     homo = args.homo
     labels = g.ndata['label']
-    # abchr = args.abchr
+    abchr = args.abchr
     nchr = args.nchr
-    # neighborchr = args.neighborchr
+    neighborchr = args.neighborchr
     dataset_name = args.dataset
     normal_idx=np.where(labels!=1)[0]
     abnormal_idx=np.where(labels==1)[0]
@@ -204,11 +46,9 @@ def train(model, g, args, abchr, neighborchr):
     idx_valid, idx_test, y_valid, y_test = train_test_split(idx_rest, y_rest, stratify=y_rest,
                                                             test_size=0.67,
                                                             random_state=random_state, shuffle=True)
-    # logger.info('train_test_change')
     # t = list(abnormal_idx)
     # temp = t[:len(t)//3]
     # saveOneStep(graph,temp,labels)
-    # logger.info('train_change')
     abC = []
     AB = list(abnormal_idx) +idx_train
     for i in AB:
@@ -225,26 +65,11 @@ def train(model, g, args, abchr, neighborchr):
                 nC.append(i)
         else:
             continue
-    # obtain the nodes that will be replaced
-    # if homo:
-    #     abC,abC1,abH_ALL = geChangeNode(g,idx_train,idx_test,abnormal_idx,labels,abchr,0.3)
-    #     nC,nC1,nH_ALL = geChangeNode(g,idx_test,idx_test,index,labels,nchr,0.3)
-
-    #     # replaced nodes
-    #     # replaced neighboring nodes
-    #     H_ALL = abH_ALL +nH_ALL
-    # else:
-    #     abC,abC1,abH_ALL = getHeteroChangeNode(g,idx_train,idx_test,abnormal_idx,labels,abchr,0.1)
-    #     nC,nC1,nH_ALL = getHeteroChangeNode(g,idx_test,idx_test,index,labels,nchr,0.1)
-    #     # replaced nodes
-    #     H_ALL = abH_ALL +nH_ALL
-
-    
     '''
     obtain replaced nodes
     '''
-    abC1,abH_ALL = getChangeNode3(idx_change,abC,abchr,neighborchr)
-    nC1,nH_ALL = getChangeNode3(idx_change,idx_test+idx_valid,nchr,neighborchr)
+    abC1,abH_ALL = getChangeNode(idx_change,abC,abchr,neighborchr)
+    nC1,nH_ALL = getChangeNode(idx_change,idx_test+idx_valid,nchr,neighborchr)
     # features of anomalies
     abC2 = [ i+len(labels)//3 for i in abC1]
     nC2 = [ i+2*len(labels)//3 for i in nC1]
@@ -254,8 +79,7 @@ def train(model, g, args, abchr, neighborchr):
     for i in nH_ALL:
         t = random.sample(abC, 1)
         features[i+2*len(labels)//3] =features[t]
-        # t1 = random.sample(nC,1)
-        # features[i] =(features[t] +features[t1])/2
+
     C1 = nC1
     C2 = nC2
     train_mask = torch.zeros([len(labels)]).bool()
@@ -266,7 +90,7 @@ def train(model, g, args, abchr, neighborchr):
     test_mask[idx_test] = 1
     print('train/dev/test samples: ', train_mask.sum().item(), val_mask.sum().item(), test_mask.sum().item())
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    best_f1, final_tf1, final_trec, final_tpre, final_tmf1, final_tauc = 0., 0., 0., 0., 0., 0.
+    best_f1, final_tf1, final_trec, final_tpre, final_tmf1, final_tauc,finanl_tauc_pr = 0., 0., 0., 0., 0., 0.,0.
 
     weight = (1-labels[train_mask]).sum().item() / labels[train_mask].sum().item()
     print('cross entropy weight: ', weight)
@@ -302,7 +126,7 @@ def train(model, g, args, abchr, neighborchr):
             final_tmf1 = tmf1
             final_tauc = tauc
             finanl_tauc_pr = tauc_pr
-        print('Epoch {}, loss: {:.4f}, val mf1: {:.4f}, (best {:.4f}, MF1 {:.2f} AUC {:.2f})'.format(e, loss, f1, best_f1, tmf1*100, tauc*100))
+        print('Epoch {}, loss: {:.4f}, val mf1: {:.4f}, (best {:.4f})'.format(e, loss, f1, best_f1))
 
     time_end = time.time()
     
@@ -338,11 +162,13 @@ if __name__ == '__main__':
     parser.add_argument("--train_ratio", type=float, default=0.01, help="Training ratio")
     parser.add_argument("--lr", type=float, default=0.01, help="learning rate")
     parser.add_argument("--abchr", type=float, default=1, help="Abnormal data exchange ratio")
-    parser.add_argument("--nchr", type=float, default=0, help="Normal data exchange ratio")
+    parser.add_argument("--nchr", type=float, default=0.7, help="Normal data exchange ratio")
+    parser.add_argument("--model", type=str, default="BWGNN",
+                        help="(BWGNN/GCN/GraphSAGE)")
     parser.add_argument("--neighborchr", type=float, default=0.4, help="neighbor data exchange ratio")
     parser.add_argument("--hid_dim", type=int, default=64, help="Hidden layer dimension")
     parser.add_argument("--order", type=int, default=2, help="Order C in Beta Wavelet")
-    parser.add_argument("--homo", type=int, default=0, help="1 for BWGNN(Homo) and 0 for BWGNN(Hetero)")
+    parser.add_argument("--homo", type=int, default=1, help="1 for BWGNN (Homo) and 0 for BWGNN (Hetero)")
     parser.add_argument("--epoch", type=int, default=100, help="The max number of epochs")
     parser.add_argument("--run", type=int, default=1, help="Running times")
 
@@ -352,7 +178,6 @@ if __name__ == '__main__':
     homo = args.homo
     order = args.order
     h_feats = args.hid_dim
-    
     graph = Dataset(dataset_name, homo).graph
     if (homo):
         c = list(graph.edges())
@@ -410,22 +235,28 @@ if __name__ == '__main__':
     num_classes = 2
 
     if args.run == 1:
-        for i in [0.1,0.4,0.7,1]:
-            for j in [1]:
-                for k in range(5):
-                    if homo:
-                        model = BWGNN(in_feats, h_feats, num_classes, graph, d=order)
-                        # model = GCN(None,in_feats,h_feats,2,3,F.relu,0.5)
-                        # model = GraphSAGE(None,in_feats,h_feats,2,3,F.relu,0.5,aggregator_type='pool')
-                    else:
-                        model = BWGNN_Hetero(in_feats, h_feats, num_classes, graph, d=order)
-                    train(model, graph, args,i,j)
+
+        if homo:
+            if args.model =='BWGNN':
+                model = BWGNN(in_feats, h_feats, num_classes, graph, d=order)
+            elif args.model =='GCN': 
+                model = GCN(None,in_feats,h_feats,2,3,F.relu,0.5)
+            elif args.model =='GraphSAGE':  
+                model = GraphSAGE(None,in_feats,h_feats,2,3,F.relu,0.5,aggregator_type='pool')
+        else:
+            model = BWGNN_Hetero(in_feats, h_feats, num_classes, graph, d=order)
+        train(model, graph, args)
 
     else:
         final_mf1s, final_aucs = [], []
         for tt in range(args.run):
             if homo:
-                model = BWGNN(in_feats, h_feats, num_classes, graph, d=order)
+                if args.model =='BWGNN':
+                    model = BWGNN(in_feats, h_feats, num_classes, graph, d=order)
+                elif args.model =='GCN': 
+                    model = GCN(None,in_feats,h_feats,2,3,F.relu,0.5)
+                elif args.model =='GraphSAGE':  
+                    model = GraphSAGE(None,in_feats,h_feats,2,3,F.relu,0.5,aggregator_type='pool')
             else:
                 model = BWGNN_Hetero(in_feats, h_feats, num_classes, graph, d=order)
             mf1, auc1 = train(model, graph, args)
