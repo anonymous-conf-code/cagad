@@ -1,3 +1,5 @@
 scikit-learn
 sympy
 argparse
+joblib
+threadpoolctl
