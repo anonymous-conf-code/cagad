@@ -169,7 +169,7 @@ if __name__ == '__main__':
     parser.add_argument("--hid_dim", type=int, default=64, help="Hidden layer dimension")
     parser.add_argument("--order", type=int, default=2, help="Order C in Beta Wavelet")
     parser.add_argument("--homo", type=int, default=1, help="1 for BWGNN (Homo) and 0 for BWGNN (Hetero)")
-    parser.add_argument("--epoch", type=int, default=100, help="The max number of epochs")
+    parser.add_argument("--epoch", type=int, default=200, help="The max number of epochs")
     parser.add_argument("--run", type=int, default=1, help="Running times")
 
     args = parser.parse_args()
